@@ -6,7 +6,7 @@ The tool was developed to support digital forensic examiners reviewing **large p
 
 ---
 
-## Key Features
+## :floppy_disk: Key Features 
 
 - GUI-based folder selection (no command-line interaction required)
 - Recursive directory comparison
@@ -32,7 +32,7 @@ The tool was developed to support digital forensic examiners reviewing **large p
 
 ---
 
-## Intended Use
+## :bookmark: Intended Use
 
 RehaCompareGUI is intended for **internal forensic and investigative workflows**, including:
 
@@ -45,7 +45,7 @@ The tool performs **read-only analysis** and does not modify files.
 
 ---
 
-## Requirements
+## :warning: Requirements
 
 - Windows 10 or later
 - PowerShell 5.1 or PowerShell 7+
@@ -55,21 +55,26 @@ No external PowerShell modules are required.
 
 ---
 
-## Usage
+## :file_folder: Usage
 
-1. Launch the script:
+1. Launch the script (PowerShell v5️⃣):
    ```powershell
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
    .\RehaCompareGUI.ps1
+   
+2. Launch the script (PowerShell v7️⃣):
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\RehaCompareGUI_PS7.ps1
 
-2. In the GUI:
+3. In the GUI:
    - Select Folder A and Folder B
    - (Optional) Enter Case Number and Operator
    - Choose desired comparison options
    - Select an output directory
    - Click **Run Comparison**
 
-3. Output Files
+4. Output Files
   -OnlyIn_A_ByPath.txt
   -OnlyIn_B_ByPath.txt
   -NotInBoth_ByPath.txt
