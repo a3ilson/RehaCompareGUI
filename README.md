@@ -86,13 +86,13 @@ No external PowerShell modules are required.
 **Comparison Method Notes**
 
 Relative Path Comparison (Recommended)
--Treats files as the same only if their relative paths match. This avoids filename collision issues.
+- Treats files as the same only if their relative paths match. This avoids filename collision issues.
 
 Filename-Only Comparison
--Useful for quick checks, but may produce false matches if duplicate filenames exist in different directories.
+- Useful for quick checks, but may produce false matches if duplicate filenames exist in different directories.
 
 Hash Comparison
--Uses SHA-256 to determine true content equality regardless of filename or location.
+- Uses SHA-256 to determine true content equality regardless of filename or location.
 
 **Forensic Considerations**
 
