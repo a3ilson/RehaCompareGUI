@@ -1,3 +1,5 @@
+## PowerShell v7
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -550,3 +552,4 @@ $btnRun.Add_Click({
 # Show form
 [void]$form.ShowDialog()
  
+
