@@ -6,19 +6,50 @@ Add-Type -AssemblyName System.Drawing
 # ----------------------------
 function Select-FolderDialog([string]$InitialPath = "") {
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-    if ($InitialPath -and (Test-Path $InitialPath)) { $dlg.SelectedPath = $InitialPath }
+    if ($InitialPath -and (Test-Path -LiteralPath $InitialPath)) { $dlg.SelectedPath = $InitialPath }
     $dlg.ShowNewFolderButton = $true
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
     return $null
 }
 
 function Ensure-Folder([string]$Path) {
-    if (-not (Test-Path $Path)) { New-Item -ItemType Directory -Path $Path | Out-Null }
+    if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path | Out-Null }
 }
 
+# .NET Framework-safe relative path
 function Get-RelPath([string]$Root, [string]$FullName) {
-    $root = (Resolve-Path $Root).Path.TrimEnd('\')
-    return $FullName.Substring($root.Length).TrimStart('\')
+    $root = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\')
+    $full = $FullName
+
+    # If on different drive/root, fall back to full path
+    if ($full.Length -lt 2 -or $root.Length -lt 2 -or $full.Substring(0,1) -ne $root.Substring(0,1)) {
+        return $full
+    }
+
+    if ($full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $full.Substring($root.Length).TrimStart('\')
+    }
+
+    # URI fallback
+    try {
+        $rootUri = New-Object System.Uri(($root.TrimEnd('\') + '\'))
+        $fullUri = New-Object System.Uri($full)
+        $relUri  = $rootUri.MakeRelativeUri($fullUri)
+        return [System.Uri]::UnescapeDataString($relUri.ToString()).Replace('/', '\')
+    } catch {
+        return $full
+    }
+}
+
+function Get-FileList([string]$Root, [bool]$Recurse) {
+    $root = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\')
+    if ($Recurse) { Get-ChildItem -LiteralPath $root -Recurse -Force | Where-Object { -not $_.PSIsContainer } }
+    else { Get-ChildItem -LiteralPath $root -Force | Where-Object { -not $_.PSIsContainer } }
+}
+
+function Safe-GetFileHash([string]$Path, [string]$Algorithm) {
+    try { Get-FileHash -LiteralPath $Path -Algorithm $Algorithm }
+    catch { $null }
 }
 
 function Write-Log([string]$msg) {
@@ -27,28 +58,6 @@ function Write-Log([string]$msg) {
     $logBox.SelectionStart = $logBox.TextLength
     $logBox.ScrollToCaret()
     [System.Windows.Forms.Application]::DoEvents()
-}
-function Write-SummaryObjectToLog([pscustomobject]$obj) {
-    Write-Log "----- SUMMARY -----"
-    ($obj | Format-List | Out-String).TrimEnd() -split "`r?`n" | ForEach-Object { Write-Log $_ }
-    Write-Log "-------------------"
-}
-
-function Get-FileList([string]$Root, [bool]$Recurse) {
-    $root = (Resolve-Path $Root).Path.TrimEnd('\')
-    if ($Recurse) {
-        return Get-ChildItem $root -Recurse -File -Force
-    } else {
-        return Get-ChildItem $root -File -Force
-    }
-}
-
-function Safe-GetFileHash([string]$Path, [string]$Algorithm) {
-    try {
-        return Get-FileHash -Path $Path -Algorithm $Algorithm
-    } catch {
-        return $null
-    }
 }
 
 # ----------------------------
@@ -73,8 +82,8 @@ $txtA = New-Object System.Windows.Forms.TextBox
 $txtA.Location = New-Object System.Drawing.Point(85, 12)
 $txtA.Size = New-Object System.Drawing.Size(680, 24)
 $txtA.Font = $font
-$form.Controls.Add($txtA)
 $txtA.Anchor = "Top,Left,Right"
+$form.Controls.Add($txtA)
 
 $btnA = New-Object System.Windows.Forms.Button
 $btnA.Text = "Browse..."
@@ -95,8 +104,8 @@ $txtB = New-Object System.Windows.Forms.TextBox
 $txtB.Location = New-Object System.Drawing.Point(85, 47)
 $txtB.Size = New-Object System.Drawing.Size(680, 24)
 $txtB.Font = $font
-$form.Controls.Add($txtB)
 $txtB.Anchor = "Top,Left,Right"
+$form.Controls.Add($txtB)
 
 $btnB = New-Object System.Windows.Forms.Button
 $btnB.Text = "Browse..."
@@ -117,8 +126,8 @@ $txtOut = New-Object System.Windows.Forms.TextBox
 $txtOut.Location = New-Object System.Drawing.Point(85, 82)
 $txtOut.Size = New-Object System.Drawing.Size(680, 24)
 $txtOut.Font = $font
-$form.Controls.Add($txtOut)
 $txtOut.Anchor = "Top,Left,Right"
+$form.Controls.Add($txtOut)
 
 $btnOut = New-Object System.Windows.Forms.Button
 $btnOut.Text = "Browse..."
@@ -155,15 +164,14 @@ $txtOp.Size = New-Object System.Drawing.Size(335, 24)
 $txtOp.Font = $font
 $form.Controls.Add($txtOp)
 
-
 # Options group
 $grp = New-Object System.Windows.Forms.GroupBox
 $grp.Text = "Options"
 $grp.Location = New-Object System.Drawing.Point(12, 145)
 $grp.Size = New-Object System.Drawing.Size(858, 140)
 $grp.Font = $font
-$form.Controls.Add($grp)
 $grp.Anchor = "Top,Left,Right"
+$form.Controls.Add($grp)
 
 $chkRecurse = New-Object System.Windows.Forms.CheckBox
 $chkRecurse.Text = "Include subfolders (Recurse)"
@@ -216,7 +224,7 @@ $cmbAlg = New-Object System.Windows.Forms.ComboBox
 $cmbAlg.Location = New-Object System.Drawing.Point(460, 22)
 $cmbAlg.Size = New-Object System.Drawing.Size(130, 24)
 $cmbAlg.DropDownStyle = "DropDownList"
-$cmbAlg.Items.AddRange(@("SHA256","SHA1","MD5"))
+[void]$cmbAlg.Items.AddRange(@("SHA256","SHA1","MD5"))
 $cmbAlg.SelectedItem = "SHA256"
 $cmbAlg.Font = $font
 $grp.Controls.Add($cmbAlg)
@@ -227,8 +235,8 @@ $btnRun.Text = "Run Comparison"
 $btnRun.Location = New-Object System.Drawing.Point(12, 305)
 $btnRun.Size = New-Object System.Drawing.Size(160, 34)
 $btnRun.Font = $font
-$form.Controls.Add($btnRun)
 $btnRun.Anchor = "Top,Left"
+$form.Controls.Add($btnRun)
 
 $progress = New-Object System.Windows.Forms.ProgressBar
 $progress.Location = New-Object System.Drawing.Point(185, 305)
@@ -236,8 +244,8 @@ $progress.Size = New-Object System.Drawing.Size(685, 24)
 $progress.Minimum = 0
 $progress.Maximum = 100
 $progress.Value = 0
-$form.Controls.Add($progress)
 $progress.Anchor = "Top,Left,Right"
+$form.Controls.Add($progress)
 
 # Log window
 $logBox = New-Object System.Windows.Forms.TextBox
@@ -247,71 +255,58 @@ $logBox.Multiline = $true
 $logBox.ScrollBars = "Vertical"
 $logBox.ReadOnly = $true
 $logBox.Font = New-Object System.Drawing.Font("Consolas", 9)
-$form.Controls.Add($logBox)
 $logBox.Anchor = "Top,Bottom,Left,Right"
-$progress.Anchor = "Top,Left,Right"
-$btnRun.Anchor = "Top,Left"
-$grp.Anchor = "Top,Left,Right"
-$txtA.Anchor = "Top,Left,Right"
-$txtB.Anchor = "Top,Left,Right"
-$txtOut.Anchor = "Top,Left,Right"
+$form.Controls.Add($logBox)
 
-# Application metadata
-$AppName    = "RehaCompareGUI"
-$AppVersion = "2.0"
-$BuildDate  = "2026-02-03"
+# Metadata
+$AppName    = "RehaCompareGUIv2"
+$AppVersion = "2.3"
+$BuildDate  = "2026-02-11"
 
 # ----------------------------
 # Button handlers
 # ----------------------------
-$btnA.Add_Click({
-    $sel = Select-FolderDialog $txtA.Text
-    if ($sel) { $txtA.Text = $sel }
-})
+$btnA.Add_Click({ $sel = Select-FolderDialog $txtA.Text; if ($sel) { $txtA.Text = $sel } })
+$btnB.Add_Click({ $sel = Select-FolderDialog $txtB.Text; if ($sel) { $txtB.Text = $sel } })
+$btnOut.Add_Click({ $sel = Select-FolderDialog $txtOut.Text; if ($sel) { $txtOut.Text = $sel } })
 
-$btnB.Add_Click({
-    $sel = Select-FolderDialog $txtB.Text
-    if ($sel) { $txtB.Text = $sel }
-})
-
-$btnOut.Add_Click({
-    $sel = Select-FolderDialog $txtOut.Text
-    if ($sel) { $txtOut.Text = $sel }
-})
+# Default output suggestion
+$txtOut.Text = Join-Path (Get-Location) ("CompareOutput_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
 
 # ----------------------------
-# Run logic
+# Run logic (UI thread)
 # ----------------------------
 $btnRun.Add_Click({
-
     $progress.Value = 0
     $logBox.Clear()
 
-$CaseNumber  = $txtCase.Text.Trim()
-$Operator    = $txtOp.Text.Trim()
-$RunTimeLocal = Get-Date
-$RunTimeUtc   = (Get-Date).ToUniversalTime()
+    $CaseNumber   = $txtCase.Text.Trim()
+    $Operator     = $txtOp.Text.Trim()
+    $RunTimeLocal = Get-Date
+    $RunTimeUtc   = (Get-Date).ToUniversalTime()
+
     $FolderA = $txtA.Text.Trim()
     $FolderB = $txtB.Text.Trim()
     $OutDir  = $txtOut.Text.Trim()
-    $DoRecurse = $chkRecurse.Checked
-    $DoRelPath = $chkRelPath.Checked
-    $DoNameOnly = $chkNameOnly.Checked
-    $DoHash = $chkHash.Checked
-    $DoSameHashDiffPath = $chkSameHashDiffPath.Checked
-    $Alg = $cmbAlg.SelectedItem.ToString()
 
-    if (-not (Test-Path $FolderA)) { [System.Windows.Forms.MessageBox]::Show("Folder A path is invalid."); return }
-    if (-not (Test-Path $FolderB)) { [System.Windows.Forms.MessageBox]::Show("Folder B path is invalid."); return }
+    $DoRecurse          = $chkRecurse.Checked
+    $DoRelPath          = $chkRelPath.Checked
+    $DoNameOnly         = $chkNameOnly.Checked
+    $DoHash             = $chkHash.Checked
+    $DoSameHashDiffPath = $chkSameHashDiffPath.Checked
+    $Alg                = $cmbAlg.SelectedItem.ToString()
+
+    if (-not (Test-Path -LiteralPath $FolderA)) { [System.Windows.Forms.MessageBox]::Show("Folder A path is invalid."); return }
+    if (-not (Test-Path -LiteralPath $FolderB)) { [System.Windows.Forms.MessageBox]::Show("Folder B path is invalid."); return }
+
     if (-not $OutDir) {
         $OutDir = Join-Path (Get-Location) ("CompareOutput_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
         $txtOut.Text = $OutDir
     }
-
     Ensure-Folder $OutDir
 
-    $FolderA = (Resolve-Path $FolderA).Path.TrimEnd('\')
-    $FolderB = (Resolve-Path $FolderB).Path.TrimEnd('\')
+    $FolderA = (Resolve-Path -LiteralPath $FolderA).Path.TrimEnd('\')
+    $FolderB = (Resolve-Path -LiteralPath $FolderB).Path.TrimEnd('\')
 
     Write-Log "Folder A: $FolderA"
     Write-Log "Folder B: $FolderB"
@@ -322,86 +317,84 @@ $RunTimeUtc   = (Get-Date).ToUniversalTime()
     Write-Log "Hash    : $DoHash ($Alg)"
     Write-Log ""
 
-    # Gather files
+    # Script hash
+    $ScriptPath = $PSCommandPath
+    $ScriptHash = if ($ScriptPath -and (Test-Path -LiteralPath $ScriptPath)) {
+        try { (Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash } catch { "ERROR_COMPUTING_HASH" }
+    } else { "SCRIPT_PATH_UNAVAILABLE" }
+
+    # Enumerate
     Write-Log "Enumerating files..."
-    $filesA = Get-FileList $FolderA $DoRecurse
-    $filesB = Get-FileList $FolderB $DoRecurse
+    $filesA = @(Get-FileList $FolderA $DoRecurse)
+    $filesB = @(Get-FileList $FolderB $DoRecurse)
     Write-Log ("Folder A files: {0}" -f $filesA.Count)
     Write-Log ("Folder B files: {0}" -f $filesB.Count)
     $progress.Value = 10
 
-# Compute script hash for provenance
-$ScriptPath = $PSCommandPath
-
-$ScriptHash = if ($ScriptPath -and (Test-Path $ScriptPath)) {
-    try {
-        (Get-FileHash -Path $ScriptPath -Algorithm SHA256).Hash
-    } catch {
-        "ERROR_COMPUTING_HASH"
-    }
-} else {
-    "SCRIPT_PATH_UNAVAILABLE"
-}
-
-
-    # --- Relative path comparison ---
+    # --- Relative path ---
+    $bothPath  = @(); $onlyAPath = @(); $onlyBPath = @()
     if ($DoRelPath) {
         Write-Log "Comparing by relative path..."
-        $relA = $filesA | ForEach-Object { Get-RelPath $FolderA $_.FullName } | Sort-Object -Unique
-        $relB = $filesB | ForEach-Object { Get-RelPath $FolderB $_.FullName } | Sort-Object -Unique
+        $relA = $filesA | ForEach-Object { Get-RelPath $FolderA $_.FullName }
+        $relB = $filesB | ForEach-Object { Get-RelPath $FolderB $_.FullName }
 
-        $diff = Compare-Object -ReferenceObject $relA -DifferenceObject $relB -IncludeEqual
-        $onlyA = $diff | Where-Object SideIndicator -eq "<=" | Select-Object -ExpandProperty InputObject
-        $onlyB = $diff | Where-Object SideIndicator -eq "=>" | Select-Object -ExpandProperty InputObject
-        $both  = $diff | Where-Object SideIndicator -eq "==" | Select-Object -ExpandProperty InputObject
+        $setA = New-Object 'System.Collections.Generic.HashSet[string]' (, [string[]]$relA)
+        $setB = New-Object 'System.Collections.Generic.HashSet[string]' (, [string[]]$relB)
 
-        $onlyA | Out-File (Join-Path $OutDir "OnlyIn_A_ByPath.txt") -Encoding UTF8
-        $onlyB | Out-File (Join-Path $OutDir "OnlyIn_B_ByPath.txt") -Encoding UTF8
-        ($onlyA + $onlyB) | Sort-Object -Unique | Out-File (Join-Path $OutDir "NotInBoth_ByPath.txt") -Encoding UTF8
+        $bothPath  = @($setA | Where-Object { $setB.Contains($_) })
+        $onlyAPath = @($setA | Where-Object { -not $setB.Contains($_) })
+        $onlyBPath = @($setB | Where-Object { -not $setA.Contains($_) })
 
-        Write-Log ("ByPath: InBoth={0} OnlyInA={1} OnlyInB={2}" -f $both.Count, $onlyA.Count, $onlyB.Count)
+        $onlyAPath | Sort-Object | Out-File (Join-Path $OutDir "OnlyIn_A_ByPath.txt") -Encoding UTF8
+        $onlyBPath | Sort-Object | Out-File (Join-Path $OutDir "OnlyIn_B_ByPath.txt") -Encoding UTF8
+        ($onlyAPath + $onlyBPath) | Sort-Object -Unique | Out-File (Join-Path $OutDir "NotInBoth_ByPath.txt") -Encoding UTF8
+
+        Write-Log ("ByPath: InBoth={0} OnlyInA={1} OnlyInB={2}" -f $bothPath.Count, $onlyAPath.Count, $onlyBPath.Count)
     } else {
         Write-Log "Skipping relative-path comparison (unchecked)."
     }
     $progress.Value = 30
 
-    # --- Filename-only comparison ---
+    # --- Name only ---
+    $bothName  = @(); $onlyAName = @(); $onlyBName = @()
     if ($DoNameOnly) {
         Write-Log "Comparing by filename-only..."
-        $namesA = $filesA | Select-Object -ExpandProperty Name | Sort-Object -Unique
-        $namesB = $filesB | Select-Object -ExpandProperty Name | Sort-Object -Unique
+        $namesA = $filesA | ForEach-Object Name
+        $namesB = $filesB | ForEach-Object Name
 
-        $diffN = Compare-Object -ReferenceObject $namesA -DifferenceObject $namesB -IncludeEqual
-        $onlyA = $diffN | Where-Object SideIndicator -eq "<=" | Select-Object -ExpandProperty InputObject
-        $onlyB = $diffN | Where-Object SideIndicator -eq "=>" | Select-Object -ExpandProperty InputObject
-        $both  = $diffN | Where-Object SideIndicator -eq "==" | Select-Object -ExpandProperty InputObject
+        $setA = New-Object 'System.Collections.Generic.HashSet[string]' (, [string[]]$namesA)
+        $setB = New-Object 'System.Collections.Generic.HashSet[string]' (, [string[]]$namesB)
 
-        $onlyA | Out-File (Join-Path $OutDir "OnlyIn_A_ByName.txt") -Encoding UTF8
-        $onlyB | Out-File (Join-Path $OutDir "OnlyIn_B_ByName.txt") -Encoding UTF8
-        ($onlyA + $onlyB) | Sort-Object -Unique | Out-File (Join-Path $OutDir "NotInBoth_ByName.txt") -Encoding UTF8
+        $bothName  = @($setA | Where-Object { $setB.Contains($_) })
+        $onlyAName = @($setA | Where-Object { -not $setB.Contains($_) })
+        $onlyBName = @($setB | Where-Object { -not $setA.Contains($_) })
 
-        Write-Log ("ByName: InBoth={0} OnlyInA={1} OnlyInB={2}" -f $both.Count, $onlyA.Count, $onlyB.Count)
+        $onlyAName | Sort-Object | Out-File (Join-Path $OutDir "OnlyIn_A_ByName.txt") -Encoding UTF8
+        $onlyBName | Sort-Object | Out-File (Join-Path $OutDir "OnlyIn_B_ByName.txt") -Encoding UTF8
+        ($onlyAName + $onlyBName) | Sort-Object -Unique | Out-File (Join-Path $OutDir "NotInBoth_ByName.txt") -Encoding UTF8
+
+        Write-Log ("ByName: InBoth={0} OnlyInA={1} OnlyInB={2}" -f $bothName.Count, $onlyAName.Count, $onlyBName.Count)
     } else {
         Write-Log "Skipping filename-only comparison (unchecked)."
     }
     $progress.Value = 45
 
-    # --- Hash comparison ---
+    # --- Hash ---
+    $hashesA = New-Object System.Collections.Generic.List[object]
+    $hashesB = New-Object System.Collections.Generic.List[object]
+    $errA    = New-Object System.Collections.Generic.List[object]
+    $errB    = New-Object System.Collections.Generic.List[object]
+    $onlyAByHash = @(); $onlyBByHash = @(); $sameDiff = @()
+
     if ($DoHash) {
         Write-Log "Hashing and comparing content (this may take time)..."
-
         $total = $filesA.Count + $filesB.Count
         if ($total -lt 1) { throw "No files found to hash." }
 
-        $hashesA = New-Object System.Collections.Generic.List[object]
-        $hashesB = New-Object System.Collections.Generic.List[object]
-        $errA = New-Object System.Collections.Generic.List[object]
-        $errB = New-Object System.Collections.Generic.List[object]
-
-        $i = 0
+        $done = 0
 
         foreach ($f in $filesA) {
-            $i++
+            $done++
             $h = Safe-GetFileHash $f.FullName $Alg
             if ($h) {
                 $hashesA.Add([pscustomobject]@{
@@ -418,14 +411,14 @@ $ScriptHash = if ($ScriptPath -and (Test-Path $ScriptPath)) {
                     Error = "Hash failed (locked/in use/access denied)."
                 })
             }
-            $pct = 45 + [int](45 * ($i / $total))
-            if ($pct -gt 90) { $pct = 90 }
+
+            if (($done % 50) -eq 0) { Write-Log ("Hashed {0}/{1}..." -f $done, $total) }
+            $pct = 45 + [int](45 * $done / $total); if ($pct -gt 90) { $pct = 90 }
             $progress.Value = $pct
-            if (($i % 50) -eq 0) { Write-Log ("Hashed {0}/{1}..." -f $i, $total) }
         }
 
         foreach ($f in $filesB) {
-            $i++
+            $done++
             $h = Safe-GetFileHash $f.FullName $Alg
             if ($h) {
                 $hashesB.Add([pscustomobject]@{
@@ -442,46 +435,45 @@ $ScriptHash = if ($ScriptPath -and (Test-Path $ScriptPath)) {
                     Error = "Hash failed (locked/in use/access denied)."
                 })
             }
-            $pct = 45 + [int](45 * ($i / $total))
-            if ($pct -gt 90) { $pct = 90 }
+
+            if (($done % 50) -eq 0) { Write-Log ("Hashed {0}/{1}..." -f $done, $total) }
+            $pct = 45 + [int](45 * $done / $total); if ($pct -gt 90) { $pct = 90 }
             $progress.Value = $pct
-            if (($i % 50) -eq 0) { Write-Log ("Hashed {0}/{1}..." -f $i, $total) }
         }
 
-        # Write error logs
         $errA | Export-Csv (Join-Path $OutDir "HashErrors_A.csv") -NoTypeInformation -Encoding UTF8
         $errB | Export-Csv (Join-Path $OutDir "HashErrors_B.csv") -NoTypeInformation -Encoding UTF8
 
-        # Compare hash sets
-        $uniqueA = Compare-Object $hashesA.Hash $hashesB.Hash | Where-Object SideIndicator -eq "<=" | Select-Object -ExpandProperty InputObject
-        $uniqueB = Compare-Object $hashesA.Hash $hashesB.Hash | Where-Object SideIndicator -eq "=>" | Select-Object -ExpandProperty InputObject
+        # Build hash -> relpaths maps
+        $mapA = @{}; foreach ($row in $hashesA) { if (-not $mapA.ContainsKey($row.Hash)) { $mapA[$row.Hash] = @() }; $mapA[$row.Hash] += $row.Rel }
+        $mapB = @{}; foreach ($row in $hashesB) { if (-not $mapB.ContainsKey($row.Hash)) { $mapB[$row.Hash] = @() }; $mapB[$row.Hash] += $row.Rel }
 
-        $onlyAByHash = $hashesA | Where-Object { $uniqueA -contains $_.Hash } | Sort-Object Hash, Rel
-        $onlyBByHash = $hashesB | Where-Object { $uniqueB -contains $_.Hash } | Sort-Object Hash, Rel
+        $hashSetA = New-Object 'System.Collections.Generic.HashSet[string]' (, [string[]]$mapA.Keys)
+        $hashSetB = New-Object 'System.Collections.Generic.HashSet[string]' (, [string[]]$mapB.Keys)
+
+        $uniqueHashesA = @($hashSetA | Where-Object { -not $hashSetB.Contains($_) })
+        $uniqueHashesB = @($hashSetB | Where-Object { -not $hashSetA.Contains($_) })
+
+        $onlyAByHash = foreach ($hval in $uniqueHashesA) { foreach ($p in ($mapA[$hval] | Sort-Object -Unique)) { [pscustomobject]@{ Hash = $hval; Rel = $p } } }
+        $onlyBByHash = foreach ($hval in $uniqueHashesB) { foreach ($p in ($mapB[$hval] | Sort-Object -Unique)) { [pscustomobject]@{ Hash = $hval; Rel = $p } } }
 
         $onlyAByHash | Export-Csv (Join-Path $OutDir "OnlyIn_A_ByHash.csv") -NoTypeInformation -Encoding UTF8
         $onlyBByHash | Export-Csv (Join-Path $OutDir "OnlyIn_B_ByHash.csv") -NoTypeInformation -Encoding UTF8
 
         Write-Log ("Hash: HashedA={0} ErrorsA={1} HashedB={2} ErrorsB={3}" -f $hashesA.Count, $errA.Count, $hashesB.Count, $errB.Count)
-        Write-Log ("Hash: UniqueContentA={0} UniqueContentB={1}" -f $onlyAByHash.Count, $onlyBByHash.Count)
+        Write-Log ("Hash: UniqueContentA={0} UniqueContentB={1}" -f (($onlyAByHash | Measure-Object).Count), (($onlyBByHash | Measure-Object).Count))
 
-        # Same hash, different path report
         if ($DoSameHashDiffPath) {
             Write-Log "Building 'same hash, different path' report..."
-            $common = ($hashesA.Hash | Sort-Object -Unique) | Where-Object { $hashesB.Hash -contains $_ }
-
-            $sameDiff = foreach ($h in $common) {
-                $pathsA = ($hashesA | Where-Object Hash -eq $h | Select-Object -ExpandProperty Rel) | Sort-Object -Unique
-                $pathsB = ($hashesB | Where-Object Hash -eq $h | Select-Object -ExpandProperty Rel) | Sort-Object -Unique
-                if (($pathsA -join "|") -ne ($pathsB -join "|")) {
-                    [pscustomobject]@{
-                        Hash   = $h
-                        PathsA = ($pathsA -join "; ")
-                        PathsB = ($pathsB -join "; ")
+            $sameDiff = foreach ($hval in $mapA.Keys) {
+                if ($mapB.ContainsKey($hval)) {
+                    $pathsA = ($mapA[$hval] | Sort-Object -Unique)
+                    $pathsB = ($mapB[$hval] | Sort-Object -Unique)
+                    if (($pathsA -join "|") -ne ($pathsB -join "|")) {
+                        [pscustomobject]@{ Hash = $hval; PathsA = ($pathsA -join "; "); PathsB = ($pathsB -join "; ") }
                     }
                 }
             }
-
             $sameDiff | Export-Csv (Join-Path $OutDir "SameHash_DifferentPath.csv") -NoTypeInformation -Encoding UTF8
             Write-Log ("SameHash_DifferentPath rows: {0}" -f (($sameDiff | Measure-Object).Count))
         }
@@ -489,104 +481,72 @@ $ScriptHash = if ($ScriptPath -and (Test-Path $ScriptPath)) {
         Write-Log "Skipping hash comparison (unchecked)."
     }
 
-    # Summary
-    $progress.Value = 95
-#    $summaryPath = Join-Path $OutDir "Summary.txt"
-#    $summary = @()
-#    $summary += "Folder A: $FolderA"
-#    $summary += "Folder B: $FolderB"
-#    $summary += "Output  : $OutDir"
-#    $summary += "Recurse : $DoRecurse"
-#    $summary += "RelPath : $DoRelPath"
-#    $summary += "NameOnly: $DoNameOnly"
-#    $summary += "Hash    : $DoHash ($Alg)"
-#    $summary += ""
-#    $summary += "Generated files in output directory."
-#
-#    $summary | Out-File $summaryPath -Encoding UTF8
-#   $progress.Value = 100
+    # Summary object
+    $SummaryObj = [pscustomobject]@{
+        FolderA = $FolderA
+        FolderB = $FolderB
+        Recurse = $DoRecurse
+        FilesA_Enumerated = $filesA.Count
+        FilesB_Enumerated = $filesB.Count
+
+        InBoth_ByPath     = if ($DoRelPath)  { $bothPath.Count }  else { $null }
+        OnlyInA_ByPath    = if ($DoRelPath)  { $onlyAPath.Count } else { $null }
+        OnlyInB_ByPath    = if ($DoRelPath)  { $onlyBPath.Count } else { $null }
+        NotInBoth_ByPath  = if ($DoRelPath)  { $onlyAPath.Count + $onlyBPath.Count } else { $null }
+
+        InBoth_ByName     = if ($DoNameOnly) { $bothName.Count }  else { $null }
+        OnlyInA_ByName    = if ($DoNameOnly) { $onlyAName.Count } else { $null }
+        OnlyInB_ByName    = if ($DoNameOnly) { $onlyBName.Count } else { $null }
+        NotInBoth_ByName  = if ($DoNameOnly) { $onlyAName.Count + $onlyBName.Count } else { $null }
+
+        HashedA           = if ($DoHash) { $hashesA.Count } else { $null }
+        HashErrorsA       = if ($DoHash) { $errA.Count }    else { $null }
+        HashedB           = if ($DoHash) { $hashesB.Count } else { $null }
+        HashErrorsB       = if ($DoHash) { $errB.Count }    else { $null }
+
+        UniqueHashesA     = if ($DoHash) { ($onlyAByHash | Measure-Object).Count } else { $null }
+        UniqueHashesB     = if ($DoHash) { ($onlyBByHash | Measure-Object).Count } else { $null }
+
+        SameHashDiffPath  = if ($DoHash -and $DoSameHashDiffPath) { ($sameDiff | Measure-Object).Count } else { $null }
+
+        OutputDirectory   = $OutDir
+    }
+
     Write-Log ""
-# ---------- BUILD SUMMARY OBJECT ----------
-$SummaryObj = [pscustomobject]@{
-    FolderA = $FolderA
-    FolderB = $FolderB
-    Recurse = $DoRecurse
+    Write-Log "----- SUMMARY -----"
+    ($SummaryObj | Format-List | Out-String).TrimEnd() -split "`r?`n" | ForEach-Object { Write-Log $_ }
+    Write-Log "-------------------"
 
-    FilesA_Enumerated = $filesA.Count
-    FilesB_Enumerated = $filesB.Count
+    # Write Summary.txt
+    $Header = @()
+    $Header += "========================="
+    $Header += "Folder Comparison Summary"
+    $Header += "========================="
+    $Header += "Case Number : $CaseNumber"
+    $Header += "Operator    : $Operator"
+    $Header += "Run Time    : $($RunTimeLocal.ToString('yyyy-MM-dd HH:mm:ss')) (Local)"
+    $Header += "Run Time    : $($RunTimeUtc.ToString('yyyy-MM-dd HH:mm:ss')) (UTC)"
+    $Header += "Folder A    : $FolderA"
+    $Header += "Folder B    : $FolderB"
+    $Header += "Output Dir  : $OutDir"
+    $Header += ""
 
-    InBoth_ByPath     = if ($DoRelPath) { $bothPath.Count } else { $null }
-    OnlyInA_ByPath    = if ($DoRelPath) { $onlyAPath.Count } else { $null }
-    OnlyInB_ByPath    = if ($DoRelPath) { $onlyBPath.Count } else { $null }
-    NotInBoth_ByPath  = if ($DoRelPath) { $onlyAPath.Count + $onlyBPath.Count } else { $null }
+    $Footer = @()
+    $Footer += ""
+    $Footer += "-----------------------------------------------"
+    $Footer += "Tool: $AppName"
+    $Footer += "Version: $AppVersion"
+    $Footer += "Build Date: $BuildDate"
+    $Footer += "Script Hash (SHA256): $ScriptHash"
+    $Footer += "-----------------------------------------------"
 
-    InBoth_ByName     = if ($DoNameOnly) { $bothName.Count } else { $null }
-    OnlyInA_ByName    = if ($DoNameOnly) { $onlyAName.Count } else { $null }
-    OnlyInB_ByName    = if ($DoNameOnly) { $onlyBName.Count } else { $null }
-    NotInBoth_ByName  = if ($DoNameOnly) { $onlyAName.Count + $onlyBName.Count } else { $null }
+    ($Header + (($SummaryObj | Format-List | Out-String).TrimEnd()) + $Footer) | Out-File (Join-Path $OutDir "Summary.txt") -Encoding UTF8
 
-    HashedA           = if ($DoHash) { $hashesA.Count } else { $null }
-    HashErrorsA       = if ($DoHash) { $errA.Count } else { $null }
-    HashedB           = if ($DoHash) { $hashesB.Count } else { $null }
-    HashErrorsB       = if ($DoHash) { $errB.Count } else { $null }
-
-    UniqueHashesA     = if ($DoHash) { $onlyAByHash.Count } else { $null }
-    UniqueHashesB     = if ($DoHash) { $onlyBByHash.Count } else { $null }
-
-    SameHashDiffPath  = if ($DoSameHashDiffPath) {
-                            ($sameDiff | Measure-Object).Count
-                        } else { $null }
-
-    OutputDirectory   = $OutDir
-}
-# ---------- WRITE SUMMARY ----------
-Write-Log "----- SUMMARY -----"
-($SummaryObj | Format-List | Out-String).TrimEnd() -split "`r?`n" |
-    ForEach-Object { Write-Log $_ }
-Write-Log "-------------------"
-
-# ---------- WRITE SUMMARY FILE WITH HEADER ----------
-$AppName = "RehaCompareGUIv2"
-
-# Make sure these exist earlier in the click handler:
-# $CaseNumber, $Operator, $RunTimeLocal, $RunTimeUtc
-
-$Header = @()
-$Header += "========================="
-$Header += "Folder Comparison Summary"
-$Header += "========================="
-$Header += "Case Number : $CaseNumber"
-$Header += "Operator    : $Operator"
-$Header += "Run Time    : $($RunTimeLocal.ToString('yyyy-MM-dd HH:mm:ss')) (Local)"
-$Header += "Run Time    : $($RunTimeUtc.ToString('yyyy-MM-dd HH:mm:ss')) (UTC)"
-$Header += "Folder A    : $FolderA"
-$Header += "Folder B    : $FolderB"
-$Header += "Output Dir  : $OutDir"
-$Header += ""
-
-$SummaryBody = ($SummaryObj | Format-List | Out-String).TrimEnd()
-$FullSummary = $Header + $SummaryBody
-
-$FullSummary | Out-File (Join-Path $OutDir "Summary.txt") -Encoding UTF8
-# ---------- APP FOOTER ----------
-$Footer = @()
-$Footer += ""
-$Footer += "-----------------------------------------------"
-$Footer += "Tool: $AppName"
-$Footer += "Version: $AppVersion"
-$Footer += "Build Date: $BuildDate"
-$Footer += "Script Hash (SHA256): $ScriptHash"
-$Footer += "-----------------------------------------------"
-
-$Footer | Out-File (Join-Path $OutDir "Summary.txt") -Encoding UTF8 -Append
-
-
+    $progress.Value = 100
     Write-Log "Done. Outputs written to: $OutDir"
     [System.Windows.Forms.MessageBox]::Show("Comparison complete.`r`nOutput: $OutDir")
 })
 
-# Default output folder suggestion
-$txtOut.Text = Join-Path (Get-Location) ("CompareOutput_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
-
 # Show form
 [void]$form.ShowDialog()
+ 
